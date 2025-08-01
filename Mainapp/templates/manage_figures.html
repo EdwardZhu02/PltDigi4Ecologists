@@ -1,0 +1,86 @@
+{% extends 'master.html' %}
+
+{% block title %}Manage Figures{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Manage</h2>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Preview</th>
+                <th>Note</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for figure in figures %}
+            <tr id="row-{{ figure.id }}">
+                <td>{{ figure.id }}</td>
+                <td><img src="/uploaded_images/{{ figure.image }}" alt="Figure Preview" style="max-width: 100px; max-height: 100px;"></td>
+                <td>
+                    <input type="text" id="note-{{ figure.id }}" value="{{ figure.note|default:'' }}" class="form-control">
+                </td>
+                <td>
+                    <a class="btn btn-primary" href="/interactive/{{ figure.id }}">Analyze</a>
+                    <button class="btn btn-primary me-2" onclick="updateNote({{ figure.id }})">Save Note</button>
+                    <button class="btn btn-danger" onclick="deleteFigure({{ figure.id }})">Delete Figure</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+    function updateNote(figureId) {
+        const note = document.getElementById(`note-${figureId}`).value;
+
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({ figure_id: figureId, note: note })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Note updated successfully!');
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    function deleteFigure(figureId) {
+        const confirmation = prompt('Type DELETE to confirm deletion of this figure and its analysis:');
+        if (confirmation !== 'DELETE') {
+            alert('Deletion cancelled.');
+            return;
+        }
+
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({ delete_id: figureId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                document.getElementById(`row-${figureId}`).remove();
+                alert('Figure and its analysis have been deleted successfully.');
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+</script>
+{% endblock %}

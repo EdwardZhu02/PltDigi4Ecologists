@@ -1,0 +1,15 @@
+{% extends 'master.html' %}
+
+{% block title %}Upload Image{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Upload</h2>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="image" accept="image/*" required>
+        <button type="submit">Upload</button>
+    </form>
+</div>
+{% endblock %}
+

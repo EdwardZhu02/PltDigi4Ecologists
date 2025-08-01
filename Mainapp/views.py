@@ -26,7 +26,8 @@ class UploadImageView(View):
             fs = FileSystemStorage(location='uploaded_images/')
             filename = fs.save(image_file.name, image_file)
             uploaded_image = UploadedImage.objects.create(image=filename)
-            return redirect(reverse('interactive_view', kwargs={'image_id': uploaded_image.id}))
+            # Jump to manage page after upload
+            return redirect(reverse('manage_figures'))
         return render(request, 'upload_image.html')
 
 class InteractiveView(View):
@@ -40,7 +41,12 @@ class InteractiveView(View):
             if os.path.exists(json_path):
                 with open(json_path, 'r') as f:
                     existing_analysis = json.load(f)
-            return render(request, 'interactive_image.html', {
+            # Load the appropriate template based on the category
+            if uploaded_image.category == 'barplot':
+                template_name = 'interactive_barplot.html'
+            else:
+                template_name = 'interactive_scatter.html'
+            return render(request, template_name, {
                 'uploaded_image': uploaded_image,
                 'existing_analysis': existing_analysis
             })
@@ -102,12 +108,16 @@ class ManageFiguresView(View):
                 return JsonResponse({'status': 'error', 'message': 'Figure not found'}, status=404)
         elif data.get('figure_id'):
             fid = data['figure_id']
-            note = data.get('note', '')
+            note = data.get('note', None)
+            category = data.get('category', None)
             try:
                 figure = UploadedImage.objects.get(id=fid)
-                figure.note = note
+                if note is not None:
+                    figure.note = note
+                if category is not None:
+                    figure.category = category
                 figure.save()
-                return JsonResponse({'status': 'success', 'message': 'Note updated'})
+                return JsonResponse({'status': 'success', 'message': 'Note/Category updated'})
             except UploadedImage.DoesNotExist:
                 return JsonResponse({'status': 'error', 'message': 'Figure not found'}, status=404)
         return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)

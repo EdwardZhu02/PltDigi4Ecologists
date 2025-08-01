@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+{% extends 'master.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <!-- Top Row: Controls -->
+        <div class="col-12 mb-3">
+            <div class="btn-group mb-2">
+                <button onclick="zoomIn()" class="btn btn-secondary">Zoom In</button>
+                <button onclick="zoomOut()" class="btn btn-secondary">Zoom Out</button>
+                <button onclick="resetZoom()" class="btn btn-secondary">Reset View</button>
+            </div>
+            <p>Zoom: <span id="zoom-display">100%</span></p>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Left Column: Image -->
+        <div class="col-md-9">
+            <h4>Barplot Interactive View</h4>
+            <div id="image-container" class="border rounded overflow-auto" style="height: 70vh;">
+                <div id="zoom-scene">
+                    <img id="plot-image" src="/uploaded_images/{{ uploaded_image.image }}" alt="Uploaded Image" onclick="handleImageClick(event)" class="img-fluid">
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Extracted Data -->
+        <div class="col-md-3">
+            <h4>Extracted Data</h4>
+            <table class="table table-striped table-bordered table-hover">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Y Value</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Row: Controls -->
+        <div class="col-12 mb-3">
+            <div class="btn-group">
+                <button onclick="resetCalibration()" class="btn btn-warning">Reset Calibration</button>
+                <button onclick="clearDataPoints()" class="btn btn-warning">Clear Points</button>
+                <button onclick="saveResults()" class="btn btn-success">Save Results</button>
+                <button onclick="exportToCSV()" class="btn btn-primary">Export to CSV</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <!-- Row: Instructions -->
+        <div class="col-12">
+            <div class="instructions">
+                <p><strong>Instructions:</strong></p>
+                <ul>
+                    <li>Click on the image to calibrate axes (2 points for Y).</li>
+                    <li>After calibration, click on data points to extract their values.</li>
+                    <li>Use Ctrl + Left Click to pan the image.</li>
+                    <li>Use mouse wheel while holding Ctrl to zoom in/out.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const existingAnalysis = {{ existing_analysis|default:'{}'|safe }};
+    let calibration = { y: [] };
+    let calibratedValue = null;
+    let isCalibrating = true;
+    let extractedData = [];
+    // Zoom & pan variables
+    let zoomLevel = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    function handleImageClick(event) {
+        if (isDragging) return;
+        const imageElement = document.querySelector("#plot-image");
+        const imageRect = imageElement.getBoundingClientRect();
+        // Calculate relative and original positions for X and Y
+        const relativeX = (event.clientX - imageRect.left) / imageRect.width;
+        const relativeY = (event.clientY - imageRect.top) / imageRect.height;
+        const originalX = relativeX * imageElement.naturalWidth;
+        const originalY = relativeY * imageElement.naturalHeight;
+        if (isCalibrating) {
+            if (calibration.y.length < 2) {
+                calibration.y.push({ x: originalX, y: originalY, relativeX, relativeY });
+                renderGreenDot(relativeX, relativeY);
+                alert(`Y-axis calibration point ${calibration.y.length} recorded. Please input the value.`);
+                const value = prompt("Enter the value for this Y-axis point:");
+                if (value !== null) {
+                    calibration.y[calibration.y.length - 1].value = parseFloat(value);
+                }
+            }
+            if (calibration.y.length === 2) {
+                isCalibrating = false;
+                alert("Calibration complete! You can now click on top of the bars to extract data points.");
+                calculateCalibration();
+                sendCalibrationData();
+            }
+        } else {
+            const realY = calculateRealY(originalY);
+            const dotElement = renderRedDot(relativeX, relativeY);
+            const dataPoint = { y: realY, originalX, originalY, relativeX, relativeY, dotElement };
+            extractedData.push(dataPoint);
+            updateDataTable();
+            sendExtractedData({ y: realY });
+        }
+    }
+    function calculateCalibration() {
+        calibratedValue = (calibration.y[1].value - calibration.y[0].value) / (calibration.y[1].y - calibration.y[0].y);
+    }
+    function calculateRealY(y) {
+        return calibration.y[0].value + (y - calibration.y[0].y) * calibratedValue;
+    }
+    function renderRedDot(relativeX, relativeY) {
+        const container = document.querySelector("#zoom-scene");
+        const dot = document.createElement("div");
+        dot.className = "data-dot red-dot";
+        dot.style.left = `${relativeX * 100}%`;
+        dot.style.top = `${relativeY * 100}%`;
+        container.appendChild(dot);
+        return dot;
+    }
+    function renderGreenDot(relativeX, relativeY) {
+        const container = document.querySelector("#zoom-scene");
+        const dot = document.createElement("div");
+        dot.className = "data-dot green-dot";
+        dot.style.left = `${relativeX * 100}%`;
+        dot.style.top = `${relativeY * 100}%`;
+        container.appendChild(dot);
+    }
+    function exportToCSV() {
+        const csvContent = ["Index,Y Value"];
+        extractedData.forEach((data, index) => {
+            csvContent.push(`${index + 1},${data.y.toFixed(2)}`);
+        });
+        const blob = new Blob([csvContent.join("\n")], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "barplot_data.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    function deleteDataPoint(index) {
+        if (extractedData[index].dotElement) {
+            extractedData[index].dotElement.remove();
+        }
+        extractedData.splice(index, 1);
+        updateDataTable();
+    }
+    function highlightPoint(index) {
+        const container = document.querySelector("#zoom-scene");
+        const highlight = document.createElement("div");
+        const dataPoint = extractedData[index];
+        highlight.className = "data-dot highlight-dot";
+        highlight.style.left = `${dataPoint.relativeX * 100}%`;
+        highlight.style.top = `${dataPoint.relativeY * 100}%`;
+        container.appendChild(highlight);
+        setTimeout(() => highlight.remove(), 1000);
+    }
+    function updateDataTable() {
+        const tableBody = document.getElementById("data-table-body");
+        tableBody.innerHTML = "";
+        extractedData.forEach((data, index) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `<td>${index + 1}</td><td>${data.y.toFixed(2)}</td><td><a href="#" onclick="deleteDataPoint(${index})">Delete</a></td>`;
+            row.addEventListener("click", () => highlightPoint(index));
+            tableBody.appendChild(row);
+        });
+    }
+    // Zoom & pan functions
+    function zoomIn() {
+        zoomLevel = Math.min(zoomLevel * 1.5, 5);
+        updateImageTransform();
+    }
+    function zoomOut() {
+        zoomLevel = Math.max(zoomLevel / 1.5, 0.5);
+        updateImageTransform();
+    }
+    function resetZoom() {
+        zoomLevel = 1;
+        panX = 0;
+        panY = 0;
+        updateImageTransform();
+    }
+    function updateImageTransform() {
+        const scene = document.querySelector("#zoom-scene");
+        scene.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px)`;
+        document.getElementById('zoom-display').textContent = Math.round(zoomLevel * 100) + '%';
+    }
+    function handleMouseDown(event) {
+        if (event.button === 0 && event.ctrlKey) {
+            isDragging = true;
+            lastMouseX = event.clientX;
+            lastMouseY = event.clientY;
+            event.preventDefault();
+        }
+    }
+    function handleMouseMove(event) {
+        if (isDragging) {
+            const deltaX = event.clientX - lastMouseX;
+            const deltaY = event.clientY - lastMouseY;
+            panX += deltaX / zoomLevel;
+            panY += deltaY / zoomLevel;
+            updateImageTransform();
+            lastMouseX = event.clientX;
+            lastMouseY = event.clientY;
+        }
+    }
+    function handleMouseUp(event) {
+        isDragging = false;
+    }
+    function handleWheel(event) {
+        if (event.ctrlKey) {
+            event.preventDefault();
+            if (event.deltaY < 0) {
+                zoomIn();
+            } else {
+                zoomOut();
+            }
+        }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        const imageContainer = document.querySelector("#image-container");
+        imageContainer.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        imageContainer.addEventListener('wheel', handleWheel);
+        if (existingAnalysis.calibration) {
+            existingAnalysis.calibration.y.forEach(pt => {
+                calibration.y.push(pt);
+                renderGreenDot(pt.relativeX, pt.relativeY);
+            });
+            if (calibration.y.length === 2) {
+                calculateCalibration(); isCalibrating = false;
+            }
+        }
+        if (existingAnalysis.extractedData) {
+            existingAnalysis.extractedData.forEach(pt => {
+                const dot = renderRedDot(pt.relativeX, pt.relativeY);
+                const dataPoint = { ...pt, dotElement: dot };
+                extractedData.push(dataPoint);
+            });
+            updateDataTable();
+        }
+    });
+    function sendCalibrationData() {
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({ calibration })
+        })
+        .then(response => response.json())
+        .then(data => console.log("Calibration data sent successfully:", data))
+        .catch(error => console.error("Error sending calibration data:", error));
+    }
+    function sendExtractedData(data) {
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({ extractedData: data })
+        })
+        .then(response => response.json())
+        .then(data => console.log("Extracted data sent successfully:", data))
+        .catch(error => console.error("Error sending extracted data:", error));
+    }
+    function resetCalibration() {
+        calibration = { y: [] };
+        calibratedValue = null;
+        isCalibrating = true;
+        document.querySelectorAll('.green-dot').forEach(dot => dot.remove());
+        alert('Calibration has been reset. Please re-calibrate Y axis.');
+    }
+    function clearDataPoints() {
+        extractedData.forEach(dp => { if (dp.dotElement) dp.dotElement.remove(); });
+        extractedData = [];
+        updateDataTable();
+    }
+    function saveResults() {
+        fetch('', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ saveResults: true, calibration, extractedData })
+        })
+        .then(res => res.json())
+        .then(data => alert(data.message || 'Results saved'));
+    }
+</script>
+<style>
+    #image-container { position: relative; display: inline-block; overflow: auto; border: 2px solid #ddd; max-width: 100%; max-height: 70vh; cursor: crosshair; }
+    #zoom-scene { position: relative; transform-origin: top left; transition: transform 0.1s ease-out; width: fit-content; height: fit-content; }
+    #plot-image { display: block; max-width: none; max-height: none; transform-origin: top left; transition: transform 0.1s ease-out; }
+    .data-dot { position: absolute; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); z-index: 10; }
+    .red-dot { width: 8px; height: 8px; background-color: #B02226; border: 1px solid whitesmoke; }
+    .green-dot { width: 10px; height: 10px; background-color: #38C1F3; border: 1px solid whitesmoke; }
+    .highlight-dot { width: 15px; height: 15px; background-color: #F0A12C; border: 2px solid whitesmoke; animation: pulse 0.5s ease-in-out; }
+    @keyframes pulse { 0% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.5); } 100% { transform: translate(-50%, -50%) scale(1); } }
+    .zoom-controls { margin: 10px 0; }
+    .zoom-controls button { margin-right: 10px; }
+    .instructions { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    .table {
+        display: block;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}

@@ -20,11 +20,18 @@
                 <td>{{ figure.id }}</td>
                 <td><img src="/uploaded_images/{{ figure.image }}" alt="Figure Preview" style="max-width: 100px; max-height: 100px;"></td>
                 <td>
-                    <input type="text" id="note-{{ figure.id }}" value="{{ figure.note|default:'' }}" class="form-control">
+                    <input type="text" id="note-{{ figure.id }}" value="{{ figure.note|default:'' }}" class="form-control mb-2">
+                    <select id="category-{{ figure.id }}" class="form-select mb-2">
+                        <option value="" {% if not figure.category %}selected{% endif %}>Select Category</option>
+                        <option value="scatterplot" {% if figure.category == 'scatterplot' %}selected{% endif %}>Scatterplot</option>
+                        <option value="barplot" {% if figure.category == 'barplot' %}selected{% endif %}>Barplot</option>
+                        <!-- More types -->
+                    </select>
                 </td>
                 <td>
                     <a class="btn btn-primary" href="/interactive/{{ figure.id }}">Analyze</a>
                     <button class="btn btn-primary me-2" onclick="updateNote({{ figure.id }})">Save Note</button>
+                    <button class="btn btn-secondary me-2" onclick="updateCategory({{ figure.id }})">Save Category</button>
                     <button class="btn btn-danger" onclick="deleteFigure({{ figure.id }})">Delete Figure</button>
                 </td>
             </tr>
@@ -49,6 +56,28 @@
         .then(data => {
             if (data.status === 'success') {
                 alert('Note updated successfully!');
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    function updateCategory(figureId) {
+        const category = document.getElementById(`category-${figureId}`).value;
+
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({ figure_id: figureId, category: category })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Category updated successfully!');
             } else {
                 alert('Error: ' + data.message);
             }

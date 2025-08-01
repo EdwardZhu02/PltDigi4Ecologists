@@ -2,7 +2,7 @@
 /uploaded_images/
 /analysis_results/
 /__pycache__/
-/.idea/
+/.idea
 *.pyc
 *.pyo
 *.pyd

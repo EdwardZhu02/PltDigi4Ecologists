@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+{% extends 'master.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12 mb-3">
+            <div class="btn-group mb-2">
+                <button onclick="startAxesCalibration()" class="btn btn-primary"><span class="badge text-bg-secondary">1</span> Calibrate Axes</button>
+                <button onclick="startCenterCalibration()" class="btn btn-primary"><span class="badge text-bg-secondary">2</span> Mark Center</button>
+                <button onclick="startAddingArrows()" class="btn btn-primary"><span class="badge text-bg-secondary">3</span> Add Variable Arrows</button>
+                <a class="btn btn-info" data-bs-toggle="collapse" href="#collapseInstructions" role="button" aria-expanded="false">
+                    <span class="badge text-bg-light">?</span> Instructions
+                </a>
+            </div>
+            <div class="collapse" id="collapseInstructions">
+                <div class="card card-body">
+                    <div class="instructions">
+                        <p><strong>Instructions:</strong></p>
+                        <ul>
+                            <li><strong>Step1 (Calibrate Axes):</strong> Click two points on X axis then two on Y axis.</li>
+                            <li><strong>Step2 (Mark Center):</strong> Click on the biplot origin where arrows start.</li>
+                            <li><strong>Step3 (Add Variable Arrows):</strong> Click on arrow tips, then enter variable name.</li>
+                            <li>Use Ctrl + Left Click to pan the image and Ctrl + Mouse Wheel to zoom.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-9">
+            <div class="card">
+                <h5 class="card-header">Interactive View (Mode: biplot)</h5>
+                <div class="card-body">
+                    <div class="btn-group mb-2">
+                        <button onclick="zoomIn()" class="btn btn-light btn-sm">Zoom In</button>
+                        <button onclick="zoomOut()" class="btn btn-light btn-sm">Zoom Out</button>
+                        <button onclick="resetZoom()" class="btn btn-light btn-sm">Reset View</button>
+                        <span>Zoom: <span id="zoom-display">100%</span></span>
+                    </div>
+                    <div id="image-container" class="border rounded overflow-auto" style="height: 70vh;">
+                        <div id="zoom-scene">
+                            <img id="plot-image" src="/uploaded_images/{{ uploaded_image.image }}" alt="Uploaded Image" onclick="handleImageClick(event)" class="img-fluid">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <h5 class="card-header">Extracted Data</h5>
+                <div class="card-body">
+                    <form class="mb-2">
+                        <label>Var1:</label>
+                        <select id="angle-var1" class="form-select form-select-sm d-inline-block w-auto"></select>
+                        <label>Var2:</label>
+                        <select id="angle-var2" class="form-select form-select-sm d-inline-block w-auto"></select>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="calculateSelectedAngle()">Get Angle</button>
+                    </form>
+                    <div id="angle-result" class="mb-2"></div>
+                    <table class="table table-striped table-bordered table-hover">
+                        <thead>
+                            <tr><th>#</th><th>Var</th><th>X(PC1)</th><th>Y(PC2)</th><th>Action</th></tr>
+                        </thead>
+                        <tbody id="data-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-12 mb-3">
+            <div class="btn-group">
+                <button onclick="resetCalibration()" class="btn btn-outline-danger">Reset All</button>
+                <button onclick="clearArrows()" class="btn btn-outline-danger">Clear Arrows</button>
+                <button onclick="saveResults()" class="btn btn-primary">Save Results</button>
+                <button onclick="exportToCSV()" class="btn btn-primary">Export to CSV</button>
+            </div>
+            <br><br>
+            <div class="info-block">
+                <span><strong>Calibration Details:</strong></span>
+                <span>X1: <span id="calibration-x1">N/A</span></span>
+                <span>X2: <span id="calibration-x2">N/A</span></span>
+                <span>Y1: <span id="calibration-y1">N/A</span></span>
+                <span>Y2: <span id="calibration-y2">N/A</span></span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const existingAnalysis = {{ existing_analysis|default:'{}'|safe }};
+    let calibration = { x: [], y: [], center: null };
+    let calibratedValues = { x: null, y: null };
+    let centerReal = null;
+    let isCalibratingAxes = false;
+    let isCalibratingCenter = false;
+    let isAddingArrows = false;
+    let extractedArrows = [];
+    let zoomLevel = 1, panX = 0, panY = 0, isDragging = false, lastMouseX = 0, lastMouseY = 0;
+
+    function handleImageClick(event) {
+        if (isDragging) return;
+        if (isCalibratingAxes) {
+            const img = document.querySelector('#plot-image');
+            const rect = img.getBoundingClientRect();
+            const relativeX = (event.clientX - rect.left) / rect.width;
+            const relativeY = (event.clientY - rect.top) / rect.height;
+            const originalX = relativeX * img.naturalWidth;
+            const originalY = relativeY * img.naturalHeight;
+            if (calibration.x.length < 2) {
+                calibration.x.push({ x: originalX, y: originalY, relativeX, relativeY });
+                renderGreenDot(relativeX, relativeY, 'X' + calibration.x.length);
+                const val = prompt('Enter PC1 value for this point:'); if (val!==null) calibration.x[calibration.x.length-1].value = parseFloat(val);
+            } else if (calibration.y.length < 2) {
+                calibration.y.push({ x: originalX, y: originalY, relativeX, relativeY });
+                renderGreenDot(relativeX, relativeY, 'Y' + calibration.y.length);
+                const val = prompt('Enter PC2 value for this point:'); if (val!==null) calibration.y[calibration.y.length-1].value = parseFloat(val);
+            }
+            if (calibration.x.length===2 && calibration.y.length===2) {
+                isCalibratingAxes = false;
+                calculateCalibration();
+                updateCalibrationInfo();
+                alert('Axes calibration complete');
+            }
+        } else if (isCalibratingCenter) {
+            const img = document.querySelector('#plot-image');
+            const rect = img.getBoundingClientRect();
+            const relativeX = (event.clientX - rect.left) / rect.width;
+            const relativeY = (event.clientY - rect.top) / rect.height;
+            const originalX = relativeX * img.naturalWidth;
+            const originalY = relativeY * img.naturalHeight;
+            calibration.center = { x: originalX, y: originalY, relativeX, relativeY };
+            renderGreenDot(relativeX, relativeY, 'Center');
+            centerReal = calculateRealValues(originalX, originalY);
+            isCalibratingCenter = false;
+            alert('Center marked');
+        } else if (isAddingArrows) {
+            if (!centerReal) { alert('Please calibrate axes and center first'); return; }
+            const img = document.querySelector('#plot-image');
+            const rect = img.getBoundingClientRect();
+            const relativeX = (event.clientX - rect.left) / rect.width;
+            const relativeY = (event.clientY - rect.top) / rect.height;
+            const originalX = relativeX * img.naturalWidth;
+            const originalY = relativeY * img.naturalHeight;
+            const real = calculateRealValues(originalX, originalY);
+            const loadingX = real.x - centerReal.x;
+            const loadingY = real.y - centerReal.y;
+            const name = prompt('Enter variable name:'); if (!name) return;
+            const dot = renderRedDot(relativeX, relativeY);
+            const lineEl = renderArrowLine(originalX, originalY);
+            extractedArrows.push({ name, loadingX, loadingY, relativeX, relativeY, dotElement: dot, lineElement: lineEl });
+            updateDataTable();
+            if (extractedArrows.length>1) {
+                const prev = extractedArrows[extractedArrows.length-2]; const curr = extractedArrows[extractedArrows.length-1];
+                const angle = calculateAngle({x:prev.loadingX,y:prev.loadingY},{x:curr.loadingX,y:curr.loadingY});
+                alert(`Angle between ${prev.name} and ${curr.name}: ${angle.toFixed(2)}°`);
+            }
+        }
+    }
+
+    function calculateCalibration() {
+        calibratedValues.x = (calibration.x[1].value - calibration.x[0].value) / (calibration.x[1].x - calibration.x[0].x);
+        calibratedValues.y = (calibration.y[1].value - calibration.y[0].value) / (calibration.y[1].y - calibration.y[0].y);
+    }
+    function calculateRealValues(origX, origY) {
+        const realX = calibration.x[0].value + (origX - calibration.x[0].x) * calibratedValues.x;
+        const realY = calibration.y[0].value + (origY - calibration.y[0].y) * calibratedValues.y;
+        return { x: realX, y: realY };
+    }
+    function calculateAngle(v1, v2) {
+        const dot = v1.x * v2.x + v1.y * v2.y;
+        const mag1 = Math.hypot(v1.x, v1.y);
+        const mag2 = Math.hypot(v2.x, v2.y);
+        return Math.acos(dot / (mag1 * mag2)) * (180 / Math.PI);
+    }
+    function renderGreenDot(relX, relY, label) {
+        const container = document.querySelector('#zoom-scene');
+        const dot = document.createElement('div'); dot.className = 'data-dot green-dot';
+        dot.style.left = `${relX * 100}%`; dot.style.top = `${relY * 100}%`;
+        if (label) { const lb = document.createElement('span'); lb.className = 'dot-label'; lb.textContent = label; dot.appendChild(lb); }
+        container.appendChild(dot);
+    }
+    function renderRedDot(relX, relY) {
+        const container = document.querySelector('#zoom-scene');
+        const dot = document.createElement('div'); dot.className = 'data-dot red-dot';
+        dot.style.left = `${relX * 100}%`; dot.style.top = `${relY * 100}%`;
+        container.appendChild(dot); return dot;
+    }
+    function renderArrowLine(origX, origY) {
+        const svg = document.getElementById('arrow-layer');
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1', calibration.center.x);
+        line.setAttribute('y1', calibration.center.y);
+        line.setAttribute('x2', origX);
+        line.setAttribute('y2', origY);
+        line.setAttribute('stroke', 'red');
+        line.setAttribute('stroke-width', '2');
+        svg.appendChild(line);
+        return line;
+    }
+    function updateDataTable() {
+        const tbody = document.getElementById('data-table-body'); tbody.innerHTML = '';
+        extractedArrows.forEach((d, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${i+1}</td><td>${d.name}</td><td>${d.loadingX.toFixed(2)}</td><td>${d.loadingY.toFixed(2)}</td><td><a href='#' onclick="deleteArrow(${i})">Delete</a></td>`;
+            tr.addEventListener('click', () => highlightArrow(i));
+            tbody.appendChild(tr);
+        });
+        updateAngleSelectors();
+    }
+    function updateAngleSelectors() {
+        const s1 = document.getElementById('angle-var1');
+        const s2 = document.getElementById('angle-var2');
+        s1.innerHTML = '<option value="">Select</option>';
+        s2.innerHTML = '<option value="">Select</option>';
+        extractedArrows.forEach(d => {
+            const opt1 = document.createElement('option'); opt1.value = d.name; opt1.textContent = d.name;
+            const opt2 = opt1.cloneNode(true);
+            s1.appendChild(opt1); s2.appendChild(opt2);
+        });
+    }
+    function calculateSelectedAngle() {
+        const v1 = document.getElementById('angle-var1').value;
+        const v2 = document.getElementById('angle-var2').value;
+        if (!v1 || !v2) { alert('Select both variables'); return; }
+        const o1 = extractedArrows.find(d => d.name === v1);
+        const o2 = extractedArrows.find(d => d.name === v2);
+        const ang = calculateAngle({x:o1.loadingX, y:o1.loadingY}, {x:o2.loadingX, y:o2.loadingY});
+        document.getElementById('angle-result').textContent = `Angle between ${v1} and ${v2}: ${ang.toFixed(2)}°`;
+    }
+    function deleteArrow(idx) {
+        if (extractedArrows[idx].dotElement) extractedArrows[idx].dotElement.remove();
+        if (extractedArrows[idx].lineElement) extractedArrows[idx].lineElement.remove();
+        extractedArrows.splice(idx,1); updateDataTable();
+    }
+    function highlightArrow(idx) {
+        const data = extractedArrows[idx];
+        const hl = document.createElement('div'); hl.className='data-dot highlight-dot';
+        hl.style.left=`${data.relativeX*100}%`; hl.style.top=`${data.relativeY*100}%`;
+        document.querySelector('#zoom-scene').appendChild(hl);
+        setTimeout(()=>hl.remove(),1000);
+    }
+    function startAxesCalibration() { isCalibratingAxes=true; isCalibratingCenter=false; isAddingArrows=false; calibration={x:[],y:[],center:null}; existingAnalysis; document.querySelectorAll('.data-dot').forEach(el=>el.remove()); updateCalibrationInfo(); alert('Select two X-axis points and two Y-axis points'); }
+    function startCenterCalibration() { if (!calibratedValues.x) { alert('Calibrate axes first'); return;} isCalibratingCenter=true; isCalibratingAxes=false; isAddingArrows=false; alert('Select center point'); }
+    function startAddingArrows() { if (!centerReal) { alert('Mark center first'); return;} isAddingArrows=true; isCalibratingAxes=false; isCalibratingCenter=false; alert('Click arrow tips to add variables'); }
+    function updateCalibrationInfo() {
+        document.getElementById('calibration-x1').textContent = calibration.x[0]?.value||'N/A';
+        document.getElementById('calibration-x2').textContent = calibration.x[1]?.value||'N/A';
+        document.getElementById('calibration-y1').textContent = calibration.y[0]?.value||'N/A';
+        document.getElementById('calibration-y2').textContent = calibration.y[1]?.value||'N/A';
+        document.getElementById('calibration-center').textContent = centerReal?`(${centerReal.x.toFixed(2)},${centerReal.y.toFixed(2)})`:'N/A';
+    }
+    function resetCalibration() { calibration={x:[],y:[],center:null}; calibratedValues={x:null,y:null}; centerReal=null; isCalibratingAxes=isCalibratingCenter=isAddingArrows=false; document.querySelectorAll('.data-dot').forEach(el=>el.remove()); extractedArrows=[]; updateDataTable(); updateCalibrationInfo(); }
+    function clearArrows() { extractedArrows.forEach(d=>{ if (d.dotElement) d.dotElement.remove(); if (d.lineElement) d.lineElement.remove(); }); extractedArrows=[]; updateDataTable(); }
+    function exportToCSV() { const rows=['Variable,PC1,PC2']; extractedArrows.forEach((d,i)=>rows.push(`${d.name},${d.loadingX.toFixed(2)},${d.loadingY.toFixed(2)}`)); const blob=new Blob([rows.join('\n')],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='biplot_data.csv'; a.click(); URL.revokeObjectURL(url); }
+    function saveResults() { fetch('',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},body:JSON.stringify({saveResults:true,calibration,extractedData:extractedArrows})}).then(r=>r.json()).then(d=>alert(d.message||'Saved')); }
+    function zoomIn(){zoomLevel=Math.min(zoomLevel*1.5,5);updateImageTransform();}
+    function zoomOut(){zoomLevel=Math.max(zoomLevel/1.5,0.5);updateImageTransform();}
+    function resetZoom(){zoomLevel=1;panX=0;panY=0;updateImageTransform();}
+    function updateImageTransform(){const s=document.querySelector('#zoom-scene');s.style.transform=`scale(${zoomLevel}) translate(${panX}px,${panY}px)`;document.getElementById('zoom-display').textContent=Math.round(zoomLevel*100)+'%';}
+    function handleMouseDown(e){if(e.button===0&&e.ctrlKey){isDragging=true;lastMouseX=e.clientX;lastMouseY=e.clientY; e.preventDefault();}}
+    function handleMouseMove(e){if(isDragging){const dx=e.clientX-lastMouseX,dy=e.clientY-lastMouseY;panX+=dx/zoomLevel;panY+=dy/zoomLevel;updateImageTransform();lastMouseX=e.clientX;lastMouseY=e.clientY;}}
+    function handleMouseUp(){isDragging=false;}
+    function handleWheel(e){if(e.ctrlKey){e.preventDefault();e.deltaY<0?zoomIn():zoomOut();}}
+    document.addEventListener('DOMContentLoaded',()=>{
+        const ic=document.querySelector('#image-container');ic.addEventListener('mousedown',handleMouseDown);document.addEventListener('mousemove',handleMouseMove);document.addEventListener('mouseup',handleMouseUp);ic.addEventListener('wheel',handleWheel);
+        // add SVG overlay for arrows
+        const img = document.querySelector('#plot-image');
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('id','arrow-layer');
+        svg.setAttribute('viewBox', `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+        svg.style.position = 'absolute'; svg.style.top = '0'; svg.style.left = '0';
+        svg.style.width = '100%'; svg.style.height = '100%'; svg.style.pointerEvents = 'none';
+        document.querySelector('#zoom-scene').appendChild(svg);
+        // render existing arrows with lines
+        if(existingAnalysis.extractedData){
+            existingAnalysis.extractedData.forEach((pt, i) => {
+                const dot = renderRedDot(pt.relativeX, pt.relativeY);
+                const origX = pt.relativeX * img.naturalWidth;
+                const origY = pt.relativeY * img.naturalHeight;
+                const line = renderArrowLine(origX, origY);
+                extractedArrows.push({...pt, dotElement: dot, lineElement: line});
+            });
+            updateDataTable();
+        }
+        if(existingAnalysis.calibration){ calibration=existingAnalysis.calibration; calibration.center=existingAnalysis.calibration.center; calculateCalibration(); centerReal=calculateRealValues(calibration.center.x,calibration.center.y); calibration.x.forEach((pt,i)=>renderGreenDot(pt.relativeX,pt.relativeY,'X'+(i+1))); calibration.y.forEach((pt,i)=>renderGreenDot(pt.relativeX,pt.relativeY,'Y'+(i+1))); renderGreenDot(calibration.center.relativeX,calibration.center.relativeY,'Center'); updateCalibrationInfo(); }
+    });
+</script>
+<style>
+    #image-container{position:relative;overflow:auto;border:2px solid #ddd;max-width:100%;max-height:70vh;cursor:crosshair;}
+    #zoom-scene{position:relative;transform-origin:top left;transition:transform .1s ease-out;width:fit-content;height:fit-content;}
+    #plot-image{display:block;max-width:none;max-height:none;transform-origin:top left;transition:transform .1s ease-out;}
+    .data-dot{position:absolute;border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);z-index:10;}
+    .red-dot{width:8px;height:8px;background-color:#B02226;border:1px solid whitesmoke;}
+    .green-dot{width:10px;height:10px;background-color:#38C1F3;border:1px solid whitesmoke;}
+    .highlight-dot{width:15px;height:15px;background-color:#F0A12C;border:2px solid whitesmoke;animation:pulse .5s ease-in-out;}
+    @keyframes pulse{0%{transform:translate(-50%,-50%) scale(1);}50%{transform:translate(-50%,-50%) scale(1.5);}100%{transform:translate(-50%,-50%) scale(1);} }
+    .dot-label{position:absolute;top:-20px;left:50%;transform:translateX(-50%);background:white;padding:2px 4px;border:1px solid #ccc;border-radius:3px;font-size:12px;}
+</style>
+{% endblock %}

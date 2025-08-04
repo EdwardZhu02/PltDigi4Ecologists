@@ -25,6 +25,7 @@
                         <option value="" {% if not figure.category %}selected{% endif %}>Select Category</option>
                         <option value="scatterplot" {% if figure.category == 'scatterplot' %}selected{% endif %}>Scatterplot</option>
                         <option value="barplot" {% if figure.category == 'barplot' %}selected{% endif %}>Barplot</option>
+                        <option value="biplot" {% if figure.category == 'biplot' %}selected{% endif %}>Biplot</option>
                         <!-- More types -->
                     </select>
                 </td>

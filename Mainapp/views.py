@@ -44,6 +44,8 @@ class InteractiveView(View):
             # Load the appropriate template based on the category
             if uploaded_image.category == 'barplot':
                 template_name = 'interactive_barplot.html'
+            elif uploaded_image.category == 'biplot':
+                template_name = 'interactive_biplot.html'
             else:
                 template_name = 'interactive_scatter.html'
             return render(request, template_name, {
